@@ -20,7 +20,6 @@ enable_testing()
 add_executable (
 	algorithms 
 	"algorithms.cpp" 
-	"hello_test.h"
 	"make_matrix.h" 
 	"shortest_path.h"
 )

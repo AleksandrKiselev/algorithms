@@ -8,12 +8,12 @@ namespace matrixutils
 	template<typename T>
 	struct Deleter
 	{
-		Deleter(int count) : m_Count(count) {}
+		Deleter(int count) : count_(count) {}
 		~Deleter() = default;
 
 		void operator()(T* matrix[])
 		{
-			for (int i = 0; i < m_Count; ++i)
+			for (int i = 0; i < count_; ++i)
 			{
 				delete[] matrix[i];
 			}
@@ -21,16 +21,16 @@ namespace matrixutils
 		}
 
 	private:
-		int m_Count;
+		int count_;
 	};
 
 	template<typename T>
-	using MatrixUPtr = std::unique_ptr<T* [], Deleter<T>>;
+	using MatrixUPtr = std::unique_ptr<T*[], Deleter<T>>;
 
 	template<typename T>
 	MatrixUPtr<T> makeMatrix(int n, int m)
 	{
-		MatrixUPtr<T> matrix(new T * [n], Deleter<T>(n));
+		MatrixUPtr<T> matrix(new T*[n], Deleter<T>(n));
 
 		for (int i = 0; i < n; ++i)
 		{
@@ -41,24 +41,22 @@ namespace matrixutils
 	}
 }
 
-TEST(MakeMatrixTest, BasicAssertion) 
+TEST(MakeMatrixTest, SimpleTest) 
 {
-	{
-		auto matrix = matrixutils::makeMatrix<double>(3, 2);
-		matrix[0][0] = 0;
-		matrix[0][1] = 1;
-		matrix[1][0] = 10;
-		matrix[1][1] = 11;
-		matrix[2][0] = 20;
-		matrix[2][1] = 21;
+	auto matrix = matrixutils::makeMatrix<std::pair<int, int>>(3, 2);
+	matrix[0][0] = std::make_pair(0, 0);
+	matrix[0][1] = std::make_pair(0, 1);
+	matrix[1][0] = std::make_pair(1, 0);
+	matrix[1][1] = std::make_pair(1, 1);
+	matrix[2][0] = std::make_pair(2, 0);
+	matrix[2][1] = std::make_pair(2, 1);
 
-		double** M = matrix.get();
+	std::pair<int, int>** rawMatrix = matrix.get();
 
-		for (int i = 0; i < 3; ++i) {
-			for (int j = 0; j < 2; ++j) {
-				std::cout << M[i][j] << std::endl; 
-			}
-		}
-
-	}
+	ASSERT_EQ(rawMatrix[0][0], std::make_pair(0, 0));
+	ASSERT_EQ(rawMatrix[0][1], std::make_pair(0, 1));
+	ASSERT_EQ(rawMatrix[1][0], std::make_pair(1, 0));
+	ASSERT_EQ(rawMatrix[1][1], std::make_pair(1, 1));
+	ASSERT_EQ(rawMatrix[2][0], std::make_pair(2, 0));
+	ASSERT_EQ(rawMatrix[2][1], std::make_pair(2, 1));
 }
