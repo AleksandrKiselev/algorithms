@@ -21,6 +21,8 @@ add_executable (
 	algorithms 
 	"algorithms.cpp" 
 	"hello_test.h"
+	"make_matrix.h" 
+	"shortest_path.h"
 )
 
 target_link_libraries(algorithms gtest_main)
