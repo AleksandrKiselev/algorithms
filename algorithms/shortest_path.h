@@ -1,147 +1,197 @@
 #pragma once
 #include <gtest/gtest.h>
+#include <unordered_map>
+#include <numeric>
 #include <vector>
 #include <queue>
+#include <set>
 
 namespace dijkstra
 {
 
-using Vertex = size_t;
-using Distance = size_t;
-using Path = std::vector<Vertex>;
-using AdjacencyMatrix = std::vector<std::vector<Distance>>;
+using vertex_t = std::size_t;
+using vertices_t = std::vector<vertex_t>;
+using vertices_set_t = std::set<vertex_t>;
 
-const auto cUnreachable = std::numeric_limits<Distance>::max();
+using distance_t = std::size_t;
+const distance_t c_max_distance = std::numeric_limits<distance_t>::max();
 
-Path find_shortest_path(const AdjacencyMatrix& matrix, Vertex start, Vertex finish)
+using edge_t = std::pair<vertex_t, vertex_t>;
+
+struct edge_hash
 {
-	if (!matrix.size())
-		return {};
-
-	if (start == finish)
-		return { start };
-
-	struct VertexData
+	std::size_t operator()(const edge_t& edge) const noexcept
 	{
-		Vertex vertex_{ 0 };
-		const VertexData* from_{ nullptr };
-		Distance distance_{ cUnreachable };
-	};
+		const auto& [minv, maxv] = std::minmax(edge.first, edge.second);
+		const auto h1 = std::hash<vertex_t>{}(minv);
+		const auto h2 = std::hash<vertex_t>{}(maxv);
+		return h1 ^ (h2 << 1);
+	}
+};
 
-	std::map<Vertex, VertexData> vertices_data;
-	auto create_vertex_data = [&vertices_data](const Vertex& vertex, const VertexData* from, const Distance& distance) -> VertexData*
+struct edge_equal
+{
+	std::size_t operator()(const edge_t& lhs, const edge_t& rhs) const noexcept
 	{
-		VertexData* data = &vertices_data[vertex];
-		data->vertex_ = vertex;
-		data->from_ = from;
-		data->distance_ = distance;
-		return data;
-	};
+		const auto& [minl, maxl] = std::minmax(lhs.first, lhs.second);
+		const auto& [minr, maxr] = std::minmax(rhs.first, rhs.second);
+		return minl == minr && maxl == maxr;
+	}
+};
 
-	auto get_vertex_data = [&vertices_data](const Vertex& vertex) ->VertexData*
-	{ 
-		VertexData* data = &vertices_data[vertex];
-		data->vertex_ = vertex;
-		return data;
-	};
+using edges_t = std::unordered_map<edge_t, distance_t, edge_hash, edge_equal>;
 
-	auto comp = [](const VertexData* rhs, const VertexData* lhs)
-	{ return rhs->distance_ > lhs->distance_; };
-	std::priority_queue<
-		VertexData*, 
-		std::vector<VertexData*>, 
-		decltype(comp)> vertices_queue(comp);
-
-	auto add_reachable_vertices_to_queue = [&](const VertexData* data)
+class graph_t
+{
+public:
+	void add_edge(const vertex_t& vertex1, const vertex_t& vertex2, const distance_t& distance)
 	{
-		const Vertex& vertex = data->vertex_;
-		for (size_t i = 0; i < matrix.size(); ++i)
+		vertices_.emplace(vertex1);
+		vertices_.emplace(vertex2);
+		if (!edges_.emplace(edge_t{ vertex1, vertex2 }, distance).second)
 		{
-			if (i == vertex)
+			throw std::logic_error("edge already exists");
+		}
+	}
+
+	bool has_edge(const vertex_t& vertex1, const vertex_t& vertex2) const
+	{
+		return edges_.find(edge_t{ vertex1, vertex2 }) != edges_.end();
+	}
+
+	std::size_t distance(const vertex_t& vertex1, const vertex_t& vertex2) const
+	{
+		const auto it = edges_.find(edge_t{ vertex1, vertex2 });
+		if (it == edges_.end())
+		{
+			throw std::logic_error("edge doesn't exist");
+		}
+		return it->second;
+	}
+
+	vertices_t adjacent_vertices(const vertex_t& vertex1) const
+	{
+		vertices_t result;
+		for (const auto& vertex2 : vertices_)
+		{
+			if (has_edge(vertex1, vertex2))
+			{
+				result.push_back(vertex2);
+			}
+		}
+		return result;
+	}
+
+	std::size_t vertices_count() const noexcept { return vertices_.size(); }
+	std::size_t edges_count() const noexcept { return edges_.size(); }
+
+private:
+	vertices_set_t vertices_;
+	edges_t edges_;
+};
+
+std::pair<vertices_t, distance_t> find_shortest_path(const graph_t& graph, vertex_t from, vertex_t to)
+{
+	struct metadata_t
+	{
+		vertex_t vertex{ 0 };
+		const metadata_t* from{ nullptr };
+		distance_t distance{ c_max_distance };
+	};
+
+	using metadata_map_t = std::unordered_map<vertex_t, metadata_t>;
+	using metadata_vec_t = std::vector<metadata_t*>;
+
+	metadata_map_t metadata_map;
+	auto get_md = [&metadata_map](const vertex_t& vertex) -> metadata_t*
+	{
+		auto* md = &metadata_map[vertex];
+		md->vertex = vertex;
+		return md;
+	};
+
+	auto comparator = [](const metadata_t* rhs, const metadata_t* lhs)
+	{ return rhs->distance > lhs->distance; };
+	using metadata_queue_t = std::priority_queue<metadata_t*, metadata_vec_t, decltype(comparator)>;
+	metadata_queue_t min_distance_queue(comparator);
+
+	auto add_reachable_vertices_to_queue = [&graph, &min_distance_queue, &get_md](const vertex_t& vertex)
+	{
+		const auto* md = get_md(vertex);
+		const auto& adj_vertices = graph.adjacent_vertices(vertex);
+		for (const auto& adj_vertex : adj_vertices)
+		{
+			const auto distance = graph.distance(vertex, adj_vertex);
+			auto* adj_md = get_md(adj_vertex);
+
+			if (adj_md->distance <= distance + md->distance)
 				continue;
 
-			const Distance distance = matrix[i][vertex];
-			if (distance == cUnreachable)
-				continue;
-
-			auto* added_data = get_vertex_data(i);
-			if (added_data->distance_ <= distance + data->distance_)
-				continue;
-
-			added_data->distance_ = distance + data->distance_;
-			added_data->from_ = data;
-			vertices_queue.emplace(added_data);
+			adj_md->distance = distance + md->distance;
+			adj_md->from = md;
+			min_distance_queue.emplace(adj_md);
 		}
 	};
 
-	add_reachable_vertices_to_queue(create_vertex_data(start, nullptr, 0));
+	get_md(from)->distance = 0;
+	add_reachable_vertices_to_queue(from);
 
-	while (!vertices_queue.empty())
+	while (!min_distance_queue.empty())
 	{
-		auto* data = vertices_queue.top();
-		vertices_queue.pop();
-		if (data->vertex_ == finish) 
-			break;
-
-		add_reachable_vertices_to_queue(data);
+		auto* md = min_distance_queue.top();
+		min_distance_queue.pop();
+		if (md->vertex == from) break;
+		add_reachable_vertices_to_queue(md->vertex);
 	}
 
-	Path shortest_path;
-
-	const VertexData* curr_data = get_vertex_data(finish);
-	if (curr_data->from_)
+	vertices_t path;
+	distance_t distance = 0;
+	const metadata_t* path_part_md = get_md(to);
+	if (path_part_md->from)
 	{
-		while (curr_data)
+		distance = path_part_md->distance;
+		while (path_part_md)
 		{
-			shortest_path.push_back(curr_data->vertex_);
-			curr_data = curr_data->from_;
+			path.push_back(path_part_md->vertex);
+			path_part_md = path_part_md->from;
 		}
-
-		std::reverse(shortest_path.begin(), shortest_path.end());
+		std::reverse(path.begin(), path.end());
 	}
-	
-	return shortest_path;
+
+	return { path, distance };
 }
 
-TEST(FindShortestPath, EmptyMatrix)
+TEST(FindShortestPath, EmptyGraph)
 {
-	const AdjacencyMatrix empty_matrix;
-	const Path empty_path;
-	const Path shortest_path = find_shortest_path(empty_matrix, 0, 0);
-	ASSERT_EQ(shortest_path, empty_path);
+	const auto expected = std::make_pair(vertices_t{}, distance_t{ 0 });
+	const auto shortest = find_shortest_path(graph_t{}, 0, 0);
+	ASSERT_EQ(shortest, expected);
 }
 
-TEST(FindShortestPath, OnePointMatrix)
+TEST(FindShortestPath, OneEdgeGraph)
 {
-	const AdjacencyMatrix one_point_matrix{ { 0 } };
-	const Path one_point_path{ 0 };
-	const Path shortest_path = find_shortest_path(one_point_matrix, 0, 0);
-	ASSERT_EQ(shortest_path, one_point_path);
+	graph_t graph;
+	graph.add_edge(0, 1, 1);
+
+	const auto expected = std::make_pair(vertices_t{ 0, 1 }, distance_t{ 1 });
+	const auto shortest = find_shortest_path(graph, 0, 1);
+	ASSERT_EQ(shortest, expected);
 }
 
-TEST(FindShortestPath, SimpleMatrix)
+TEST(FindShortestPath, SixEdgesGraph)
 {
-	const AdjacencyMatrix two_points_matrix{ { 0, 1 }, { 1, 0 } };
-	const Path expected_path{ 0, 1 };
-	const Path shortest_path = find_shortest_path(two_points_matrix, 0, 1);
-	ASSERT_EQ(shortest_path, expected_path);
+	graph_t graph;
+	graph.add_edge(0, 1, 2);
+	graph.add_edge(0, 3, 9);
+	graph.add_edge(1, 4, 3);
+	graph.add_edge(2, 3, 1);
+	graph.add_edge(2, 4, 1);
+	graph.add_edge(3, 5, 1);
+	graph.add_edge(4, 5, 9);
+
+	const auto expected = std::make_pair(vertices_t{ 0, 1, 4, 2, 3, 5 }, distance_t{ 8 });
+	const auto shortest = find_shortest_path(graph, 0, 5);
+	ASSERT_EQ(shortest, expected);
 }
 
-TEST(FindShortestPath, SmallMatrix)
-{
-	const auto u = cUnreachable;
-	const AdjacencyMatrix matrix
-	{ 
-		{ 0, 2, u, 9, u, u },
-		{ 2, 0, u, u, 3, u },
-		{ u, u, 0, 1, 1, u },
-		{ 9, u, 1, 0, u, 1 },
-		{ u, 3, 1, u, 0, 9 },
-		{ u, u, u, 1, 9, 0 },
-	};
-	const Path expected_path{ 0, 1, 4, 2, 3, 5 };
-	const Path shortest_path = find_shortest_path(matrix, 0, 5);
-	ASSERT_EQ(shortest_path, expected_path);
-}
-
-}
+} // namespace dijkstra
